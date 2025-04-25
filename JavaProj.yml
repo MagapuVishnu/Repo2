@@ -1,0 +1,75 @@
+trigger:
+  branches:
+    include:
+      - main
+
+stages:
+# Stage 1 - Build and Publish Java Project
+- stage: Build
+  displayName: 'Build and Publish'
+  jobs:
+    - job: BuildApp
+      displayName: 'Build Java Project'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - task: MavenAuthenticate@1
+          displayName: 'Authenticate Maven'
+
+        - task: Maven@3
+          displayName: 'Maven Clean Install'
+          inputs:
+            mavenPomFile: '**/pom.xml'
+            goals: 'clean install'
+            options: '-DskipTests'
+
+        - task: PublishBuildArtifacts@1
+          inputs:
+            PathtoPublish: '$(Build.SourcesDirectory)/target'
+            ArtifactName: 'drop'
+            publishLocation: 'Container'
+
+# Stage 2 - Run End-to-End Tests
+- stage: Test
+  displayName: 'Run E2E Tests'
+  dependsOn: Build
+  jobs:
+    - job: E2ETests
+      displayName: 'Run E2E Tests'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - download: current
+          artifact: drop
+
+        - script: |
+            echo "Running E2E tests..."
+            # Replace with your actual test runner command
+            mvn test -Dtest=EndToEndTest # Specify the test class or pattern here
+          displayName: 'Execute E2E Tests'
+
+# Stage 3 - Build Docker Image and Push to ACR
+- stage: Docker
+  displayName: 'Build and Push Docker Image'
+  dependsOn: Test
+  jobs:
+    - job: DockerBuild
+      displayName: 'Docker Build and Push'
+      pool:
+        vmImage: 'ubuntu-latest'
+      steps:
+        - task: Docker@2
+          displayName: 'Login to ACR'
+          inputs:
+            command: 'login'
+            containerRegistry: 'myACRServiceConnection'  # Define this ACR service connection
+
+        - task: Docker@2
+          displayName: 'Build and Push Docker Image'
+          inputs:
+            command: 'buildAndPush'
+            repository: 'myapp/image'  # Replace with your repository name
+            dockerfile: '**/Dockerfile'
+            tags: |
+              $(Build.BuildId)
+            containerRegistry: 'myACRServiceConnection'
